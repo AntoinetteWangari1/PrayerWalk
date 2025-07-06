@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TOT Prayer Walk</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: #ecf0f1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100%;
+      position: relative;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 20px;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+      width: 95%;
+      max-width: 900px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+      z-index: 1;
+    }
+
+    .header {
+      padding: 20px;
+      text-align: center;
+      background: #27ae60;
+      color: white;
+    }
+
+    .controls {
+      padding: 10px;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 10px 16px;
+      font-size: 15px;
+      border: none;
+      border-radius: 8px;
+      background-color: #27ae60;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      background-color: #95a5a6;
+      cursor: not-allowed;
+    }
+
+    .stats {
+      text-align: center;
+      margin: 5px;
+      font-size: 15px;
+    }
+
+    #map {
+      flex-grow: 1;
+      height: 100%;
+      min-height: 400px;      
+      z-index: 1;
+    }
+
+    #splash {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(0, 0, 0, 0.85);
+      color: white;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 99999;
+      text-align: center;
+    }
+
+    #splashMap {
+      height: 300px;
+      width: 90%;
+      max-width: 500px;
+      border-radius: 10px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="header">
+    <h2>TOT Prayer Walk</h2>
+  </div>
+
+  <div class="controls">
+    <button id="startBtn">Start Walk</button>
+    <button id="stopBtn" disabled>Stop Walk</button>
+    <button id="resetBtn" disabled>Reset</button>
+  </div>
+
+  <div class="stats">
+    <span id="timer">⏱️ Time: 00:00</span> |
+    <span id="steps">👣 Steps: 0</span>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<!-- 🎉 Splash -->
+<div id="splash">
+  <h1 style="font-size: 2.5em;">Congratulations!</h1>
+  <p id="summaryText" style="font-size: 1.2em; margin: 10px 0;"></p>
+  <div id="splashMap"></div>
+  <br>
+  <button onclick="closeSplash()">Close</button>
+</div>
+
+<!-- Confetti CDN -->
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+  let map = L.map('map').setView([-1.2932, 36.8194], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+  let polyline = L.polyline([], { color: 'blue', weight: 5 }).addTo(map);
+  let marker = null;
+  let route = [];
+  let geojson = null;
+  let watchId = null;
+  let startTime = null;
+  let timerInterval = null;
+
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const timerDisplay = document.getElementById('timer');
+  const stepsDisplay = document.getElementById('steps');
+
+  function updateTimer() {
+    const now = new Date();
+    const diff = new Date(now - startTime);
+    const minutes = String(diff.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(diff.getUTCSeconds()).padStart(2, '0');
+    timerDisplay.textContent = `⏱️ Time: ${minutes}:${seconds}`;
+  }
+
+  function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const toRad = x => x * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat/2)**2 +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function estimateSteps(route) {
+    let totalDist = 0;
+    for (let i = 1; i < route.length; i++) {
+      totalDist += haversine(
+        route[i-1][0], route[i-1][1],
+        route[i][0], route[i][1]
+      );
+    }
+    const steps = Math.round(totalDist / 0.78); // avg step ~0.78m
+    stepsDisplay.textContent = `👣 Steps: ${steps}`;
+    return steps;
+  }
+
+  function closeSplash() {
+    document.getElementById("splash").style.display = "none";
+  }
+
+  startBtn.onclick = () => {
+    route = [];
+    polyline.setLatLngs([]);
+    if ('geolocation' in navigator) {
+      startTime = new Date();
+      timerInterval = setInterval(updateTimer, 1000);
+
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          const latlng = [latitude, longitude];
+          map.setView(latlng, 18);
+
+          if (!marker) {
+            marker = L.marker(latlng).addTo(map);
+          } else {
+            marker.setLatLng(latlng);
+          }
+
+          route.push(latlng);
+          polyline.setLatLngs(route);
+          estimateSteps(route);
+        },
+        (err) => alert("Location error: " + err.message),
+        { enableHighAccuracy: true }
+      );
+
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      resetBtn.disabled = true;
+    }
+  };
+
+  stopBtn.onclick = () => {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+    clearInterval(timerInterval);
+
+    const durationMs = new Date() - startTime;
+    const minutes = Math.floor(durationMs / 60000);
+    const seconds = Math.floor((durationMs % 60000) / 1000);
+    const duration = `${minutes}m ${seconds}s`;
+    const steps = estimateSteps(route);
+
+    geojson = {
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        coordinates: route.map(p => [p[1], p[0]]) // [lng, lat]
+      },
+      properties: {
+        startTime: startTime.toISOString(),
+        steps: steps,
+        duration: duration,
+        date: startTime.toLocaleDateString()
+      }
+    };
+
+    document.getElementById("summaryText").innerText = `You walked for ${duration} and took ${steps} steps!`;
+    document.getElementById("splash").style.display = "flex";
+
+    const splashMap = L.map('splashMap').setView(route[0], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(splashMap);
+    const splashRoute = L.polyline(route, { color: 'orange', weight: 5 }).addTo(splashMap);
+    splashMap.fitBounds(splashRoute.getBounds());
+    setTimeout(() => splashMap.invalidateSize(), 300);
+
+    const confettiCanvas = document.createElement('canvas');
+    confettiCanvas.style.position = 'absolute';
+    confettiCanvas.style.top = 0;
+    confettiCanvas.style.left = 0;
+    confettiCanvas.style.width = '100%';
+    confettiCanvas.style.height = '100%';
+    confettiCanvas.style.pointerEvents = 'none';
+    document.getElementById("splash").appendChild(confettiCanvas);
+
+    confetti.create(confettiCanvas, {
+      resize: true,
+      useWorker: true
+    })({
+      particleCount: 150,
+      spread: 100,
+      origin: { y: 0.6 }
+    });
+
+    stopBtn.disabled = true;
+    startBtn.disabled = false;
+    resetBtn.disabled = false;
+
+    // Save GeoJSON to server
+    fetch('/save_geojson', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(geojson)
+    })
+    .then(res => res.json())
+    .then(data => {
+      console.log("GeoJSON saved:", data);
+    })
+    .catch(err => console.error("Failed to save GeoJSON", err));
+
+
+
+  };
+
+  resetBtn.onclick = () => {
+    route = [];
+    polyline.setLatLngs([]);
+    if (marker) {
+      map.removeLayer(marker);
+      marker = null;
+    }
+    geojson = null;
+    timerDisplay.textContent = `⏱️ Time: 00:00`;
+    stepsDisplay.textContent = `👣 Steps: 0`;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    resetBtn.disabled = true;
+    map.setView([-1.2932, 36.8194], 12);
+  };
+
+  window.addEventListener('load', () => {
+  setTimeout(() => {
+    map.invalidateSize();
+  }, 100);
+});
+
+</script>
+</body>
+</html>

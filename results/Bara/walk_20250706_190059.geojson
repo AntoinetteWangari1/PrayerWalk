@@ -1,0 +1,22 @@
+{
+  "type": "Feature",
+  "geometry": {
+    "type": "LineString",
+    "coordinates": [
+      [
+        37.0064702,
+        -1.1586243
+      ],
+      [
+        37.0064702,
+        -1.1586243
+      ]
+    ]
+  },
+  "properties": {
+    "startTime": "2025-07-06T16:00:44.116Z",
+    "steps": 0,
+    "duration": "0m 15s",
+    "date": "7/6/2025"
+  }
+}

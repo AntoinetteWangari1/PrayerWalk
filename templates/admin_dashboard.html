@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Admin Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 10px;
+      text-align: center;
+    }
+    th {
+      background: #2c3e50;
+      color: white;
+    }
+    button {
+      padding: 5px 10px;
+      background-color: #27ae60;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .danger {
+      background-color: #e74c3c;
+    }
+    .top-btn {
+      margin-bottom: 20px;
+    }
+    .map-card {
+      background: #f9f9f9;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      padding: 15px;
+    }
+    #map {
+      height: 400px;
+      width: 100%;
+      border-radius: 5px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="top-btn">
+    {% if session['user'] == 'admin' %}
+      <a href="{{ url_for('home') }}">
+        <button>Back to App</button>
+      </a>
+    {% else %}
+      <a href="{{ url_for('admin_dashboard') }}">
+        <button>← Back to Dashboard</button>
+      </a>
+    {% endif %}
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Date</th>
+        <th>Steps</th>
+        <th>Duration</th>
+        <th>File</th>
+        <th>Preview</th>
+        <th>Download</th>
+        <th>Delete</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for walk in walks %}
+      <tr>
+        <td>{{ walk.user }}</td>
+        <td>{{ walk.date }}</td>
+        <td>{{ walk.steps }}</td>
+        <td>{{ walk.duration }}</td>
+        <td>{{ walk.file }}</td>
+        <td>
+          <button onclick="loadGeoJSON('{{ walk.user }}', '{{ walk.file }}')">View</button>
+        </td>
+        <td>
+          <a href="/download/{{ walk.user }}/{{ walk.file }}">
+            <button>Download</button>
+          </a>
+        </td>
+        <td>
+          <form action="/delete/{{ walk.user }}/{{ walk.file }}" method="post" onsubmit="return confirm('Delete this file?')">
+            <button class="danger" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="map-card">
+    <!-- <h3>Walk Route Preview</h3> -->
+    <div id="map"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([-1.2932218532868784, 36.81946044240761], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    let geoLayer;
+    let startMarker;
+    let endMarker;
+
+    function loadGeoJSON(user, file) {
+      fetch(`/view_geojson/${user}/${file}`)
+        .then(res => res.json())
+        .then(data => {
+          if (geoLayer) geoLayer.remove();
+          if (startMarker) startMarker.remove();
+          if (endMarker) endMarker.remove();
+
+          geoLayer = L.geoJSON(data).addTo(map);
+          map.fitBounds(geoLayer.getBounds());
+
+          const coords = data.geometry.coordinates;
+          if (coords.length >= 2) {
+            const start = [coords[0][1], coords[0][0]];
+            const end = [coords[coords.length - 1][1], coords[coords.length - 1][0]];
+
+            startMarker = L.marker(start).addTo(map).bindPopup("🚩 Start").openPopup();
+            endMarker = L.marker(end).addTo(map).bindPopup("🏁 End");
+          }
+        })
+        .catch(err => alert("Failed to load GeoJSON"));
+    }
+  </script>
+
+</body>
+</html>
